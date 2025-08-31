@@ -1,0 +1,28 @@
+{
+  "name": "forsenad-chrome-extension",
+  "version": "1.0.0",
+  "description": "A modern Chrome extension built with Manifest V3",
+  "main": "manifest.json",
+  "scripts": {
+    "build": "echo 'Chrome extensions are loaded directly, no build step required'",
+    "dev": "echo 'Load extension in Chrome with Developer mode enabled'",
+    "test": "echo 'Test extension functionality in Chrome'"
+  },
+  "keywords": [
+    "chrome-extension",
+    "manifest-v3",
+    "browser-extension",
+    "javascript"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "devDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/forsenad-chrome.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/forsenad-chrome/issues"
+  },
+  "homepage": "https://github.com/yourusername/forsenad-chrome#readme"
+}
