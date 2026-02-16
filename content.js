@@ -66,6 +66,11 @@ class SJTrainParser {
         
         // Trim whitespace
         let normalized = sjStationName.trim();
+
+        //Special cases
+        if(normalized.toLowerCase() === 'mjölby station'){
+            return 'Mjölby';
+        }
         
         // Replace "Central" with "C" (case insensitive)
         normalized = normalized.replace(/\s+Central$/i, ' C');
