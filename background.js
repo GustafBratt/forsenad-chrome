@@ -29,6 +29,13 @@ chrome.runtime.onStartup.addListener(function() {
 chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     console.log('Background received message:', request);
     
+    // Test ping/pong
+    if (request.action === 'ping') {
+        console.log('Received ping, sending pong');
+        sendResponse({ status: 'pong', timestamp: Date.now() });
+        return true;
+    }
+    
     if (request.action === 'getStats') {
         chrome.storage.local.get(['clickCount', 'isEnabled'], function(result) {
             sendResponse({
@@ -50,14 +57,24 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     }
 
     if (request.action === 'fetchTrainData') {
+        console.log('Fetching train data from:', request.url);
+        
         // Make the API call from background script (bypasses CORS)
         fetch(request.url)
-            .then(response => response.json())
+            .then(response => {
+                console.log('Fetch response status:', response.status, response.statusText);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                return response.json();
+            })
             .then(data => {
+                console.log('Fetch success, data:', data);
                 sendResponse({ success: true, data: data });
             })
             .catch(error => {
                 console.error('Error fetching train data:', error);
+                console.error('URL was:', request.url);
                 sendResponse({ success: false, error: error.message });
             });
         
@@ -78,3 +95,4 @@ chrome.action.onClicked.addListener(function(tab) {
     // You can add custom behavior here
     // For example, inject content script or modify the page
 });
+

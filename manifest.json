@@ -1,11 +1,15 @@
 {
   "manifest_version": 3,
   "name": "Forsenad Chrome Extension",
-  "version": "1.0.0",
-  "description": "A Chrome extension for enhanced browsing experience",
+  "version": "1.0.2",
+  "description": "Adds delay statistics from forsenad.nu to SJ.se",
   "permissions": [
     "activeTab",
     "storage"
+  ],
+  "host_permissions": [
+    "https://www.sj.se/*",
+    "https://www.forsenad.nu/*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -13,9 +17,11 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://www.sj.se/sok-resa*"],
+      "matches": [
+        "https://www.sj.se/*"
+      ],
       "js": ["popupMessageHandler.js", "content.js"],
-      "run_at": "document_end"
+      "run_at": "document_idle"
     }
   ],
   "background": {

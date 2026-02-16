@@ -1,6 +1,32 @@
 // Enhanced content script for Chrome extension to parse SJ train information
 // This script handles dynamically loaded content with improved error handling and flexibility
 
+// === CRITICAL STARTUP LOGGING ===
+console.log('═══════════════════════════════════════════════════');
+console.log('🚂 FORSENAD EXTENSION LOADED!');
+console.log('🚂 Current URL:', window.location.href);
+console.log('🚂 Current pathname:', window.location.pathname);
+console.log('🚂 Current search:', window.location.search);
+console.log('🚂 Timestamp:', new Date().toISOString());
+console.log('🚂 Chrome API check:', typeof chrome);
+console.log('🚂 Chrome runtime check:', typeof chrome?.runtime);
+if (typeof chrome === 'undefined' || !chrome.runtime) {
+    console.error('🚂 ❌ ERROR: Chrome extension APIs NOT AVAILABLE!');
+} else {
+    console.log('🚂 ✓ Chrome extension APIs available');
+    
+    // Test background script communication immediately
+    console.log('🚂 Testing background script communication...');
+    chrome.runtime.sendMessage({ action: 'ping' }, response => {
+        if (chrome.runtime.lastError) {
+            console.error('🚂 ❌ Background script communication FAILED:', chrome.runtime.lastError.message);
+        } else {
+            console.log('🚂 ✓ Background script responded:', response);
+        }
+    });
+}
+console.log('═══════════════════════════════════════════════════');
+
 class SJTrainParser {
     constructor() {
         this.trains = [];
@@ -8,6 +34,61 @@ class SJTrainParser {
         this.isRunning = false;
         this.maxAttempts = 10;
         this.interval = 1000;
+        this.lastFetchedTrains = null; // Track which trains we've already fetched stats for
+        
+        // Station names recognized by forsenad.nu API
+        this.validStations = [
+            "Alvesta", "Arlanda C", "Arvika", "Avesta Krylbo", "Boden C",
+            "Bollnäs", "Borlänge C", "Borås C", "Bräcke", "Duved",
+            "Emmaboda", "Eskilstuna C", "Falköping C", "Falun C", "Gällivare C",
+            "Gävle C", "Göteborg C", "Hallsberg", "Halmstad C", "Haparanda",
+            "Helsingborg C", "Herrljunga C", "Hudiksvall", "Härnösand C", "Hässleholm",
+            "Jönköping C", "Kalmar C", "Karlskrona C", "Karlstad C", "Katrineholm C",
+            "Kiruna", "Laxå", "Linköping C", "Luleå", "Lund C",
+            "Malmö C", "Mjölby", "Mora C", "Norrköping C", "Nässjö C",
+            "Riksgränsen", "Sala", "Stockholm C", "Strömstad", "Sundsvall C",
+            "Söderhamn", "Södertälje Syd", "Tranås", "Trollhättan", "Umeå C",
+            "Uppsala C", "Vetlanda", "Vingåker", "Vännäs", "Västerås C",
+            "Ystad", "Ängelholm", "Ånge", "Åre", "Örebro C",
+            "Örnsköldsvik C", "Östersund C"
+        ];
+        
+        // Create a Set for faster lookup
+        this.validStationsSet = new Set(this.validStations);
+    }
+
+    /**
+     * Normalize station name from SJ format to API format
+     * SJ uses "Stockholm Central" -> API uses "Stockholm C"
+     */
+    normalizeStationName(sjStationName) {
+        if (!sjStationName) return null;
+        
+        // Trim whitespace
+        let normalized = sjStationName.trim();
+        
+        // Replace "Central" with "C" (case insensitive)
+        normalized = normalized.replace(/\s+Central$/i, ' C');
+        
+        // Check if this exact name exists in our API
+        if (this.validStationsSet.has(normalized)) {
+            return normalized;
+        }
+        
+        // Try without " C" suffix for stations that don't have it in API
+        const withoutC = normalized.replace(/\s+C$/, '');
+        if (this.validStationsSet.has(withoutC)) {
+            return withoutC;
+        }
+        
+        // Station not found in API
+        this.log(`⚠️ Station "${sjStationName}" -> "${normalized}" not found in API`, {
+            original: sjStationName,
+            normalized: normalized,
+            withoutC: withoutC
+        });
+        
+        return null;
     }
 
     log(message, data = null) {
@@ -23,17 +104,54 @@ class SJTrainParser {
     parseTrainInfo() {
         this.log("Searching for train information...");
         
-        // Find the main journey container
-        const journeyContainer = document.querySelector('[aria-label="Resedetaljer"]') || document.body;
+        // Try multiple selectors to find the journey container
+        let journeyContainer = document.querySelector('[aria-label="Resedetaljer"]');
         
-        if (!journeyContainer) {
-            this.log("No journey container found");
-            return [];
+        if (journeyContainer) {
+            this.log("✓ Found Resedetaljer dialog");
+        } else {
+            this.log("✗ No Resedetaljer dialog found, searching entire page");
+            journeyContainer = document.body;
         }
         
         // Get all list items in the journey
-        const listItems = journeyContainer.querySelectorAll('[role="listitem"]');
-        this.log(`Found ${listItems.length} list items to analyze`);
+        let listItems = journeyContainer.querySelectorAll('[role="listitem"]');
+        this.log(`Found ${listItems.length} list items with [role="listitem"]`);
+        
+        // Try alternative selectors if the first one fails
+        if (listItems.length === 0) {
+            this.log("Trying alternative selector: .sjse-route-description-item");
+            listItems = journeyContainer.querySelectorAll('.sjse-route-description-item');
+            this.log(`Found ${listItems.length} items with .sjse-route-description-item`);
+        }
+        
+        if (listItems.length === 0) {
+            this.log("Trying alternative selector: li (all list items in dialog)");
+            listItems = journeyContainer.querySelectorAll('li');
+            this.log(`Found ${listItems.length} <li> elements`);
+        }
+        
+        // Debug: Show where we're looking
+        if (listItems.length === 0) {
+            this.log("DEBUG: Checking for train text anywhere on page...");
+            const allText = document.body.textContent;
+            this.log(`Page contains 'tåg': ${allText.includes('tåg')}`);
+            this.log(`Page contains 'Resedetaljer': ${allText.includes('Resedetaljer')}`);
+            
+            // Try to find ANY element with train numbers
+            const allElements = document.querySelectorAll('*');
+            let foundTrainText = false;
+            for (const el of allElements) {
+                if (el.textContent.match(/tåg\s+\d+/i)) {
+                    foundTrainText = true;
+                    this.log("DEBUG: Found element with train number:", el.className, el.textContent.substring(0, 100));
+                    break;
+                }
+            }
+            if (!foundTrainText) {
+                this.log("DEBUG: No train numbers found anywhere on page");
+            }
+        }
         
         const trains = new Map();
         
@@ -41,23 +159,37 @@ class SJTrainParser {
         for (let i = 0; i < listItems.length; i++) {
             const listItem = listItems[i];
             
-            // Check if this item contains train information
-            const trainElement = listItem.querySelector('p[aria-hidden="true"]');
-            if (trainElement) {
-                const trainMatch = trainElement.textContent.match(/tåg\s+(\d+)/i);
+            // NEW: Look for train information in screen-reader spans
+            const srSpans = listItem.querySelectorAll('span[class*="srOnly"], .MuiTypography-srOnly');
+            
+            for (const span of srSpans) {
+                const text = span.textContent;
+                
+                // Look for pattern: "körs med [operator], tåg XXX"
+                const trainMatch = text.match(/tåg\s+(\d+)/i);
                 if (trainMatch) {
                     const trainId = trainMatch[1];
                     this.log(`Found train ${trainId} in list item ${i}`);
                     
-                    // Find the corresponding arrival destination
-                    const destination = this.findDestinationForTrain(listItems, i, trainId);
+                    // Find the departure station
+                    const departureMatch = text.match(/från\s+(.+?)\./i);
+                    const rawDeparture = departureMatch ? departureMatch[1].trim() : null;
+                    const departureStation = this.normalizeStationName(rawDeparture);
+                    
+                    // Find the destination - look ahead in the list
+                    const rawDestination = this.findDestinationForTrain(listItems, i, trainId);
+                    const destination = this.normalizeStationName(rawDestination);
                     
                     if (destination) {
-                        trains.set(trainId, {
+                        const trainInfo = {
                             id: trainId,
-                            destination: destination
-                        });
-                        this.log(`Train ${trainId} to ${destination}`);
+                            from: departureStation,
+                            to: destination,
+                            rawFrom: rawDeparture,
+                            rawTo: rawDestination
+                        };
+                        trains.set(trainId, trainInfo);
+                        this.log(`Train ${trainId} from ${departureStation || rawDeparture} to ${destination}`);
                     } else {
                         this.log(`Train ${trainId} found but no destination detected`);
                     }
@@ -71,7 +203,34 @@ class SJTrainParser {
             this.log("No train information found on this page");
         } else {
             this.log(`Found ${this.trains.length} trains:`, this.trains);
+            
+            // Show which trains are ready for API calls
+            const readyForAPI = this.trains.filter(t => this.canCallAPI(t));
+            const notReady = this.trains.filter(t => !this.canCallAPI(t));
+            
+            this.log(`✓ ${readyForAPI.length} trains ready for API calls`);
+            if (notReady.length > 0) {
+                this.log(`⚠️ ${notReady.length} trains missing station data:`, notReady);
+            }
+            
             this.notifyExtension();
+            
+            // Check if we should fetch stats (only if trains changed)
+            const trainKey = this.trains.map(t => `${t.id}-${t.to}`).sort().join('|');
+            
+            if (this.lastFetchedTrains !== trainKey) {
+                this.log('🔄 New train set detected, fetching stats...');
+                this.lastFetchedTrains = trainKey;
+                
+                // Automatically fetch delay statistics
+                this.fetchAllDelayStats().then(stats => {
+                    if (stats.length > 0) {
+                        this.displayDelayStats(stats);
+                    }
+                });
+            } else {
+                this.log('ℹ️ Same trains as before, skipping stats fetch');
+            }
         }
         
         return this.trains;
@@ -82,13 +241,13 @@ class SJTrainParser {
         // Look for the next arrival after this train's departure
         for (let i = trainIndex + 1; i < listItems.length; i++) {
             const nextItem = listItems[i];
-            const srText = nextItem.querySelector('span[class*="srOnly"]');
+            const srSpans = nextItem.querySelectorAll('span[class*="srOnly"], .MuiTypography-srOnly');
             
-            if (srText) {
-                const text = srText.textContent;
+            for (const span of srSpans) {
+                const text = span.textContent;
                 
-                // Look for arrival pattern: "Tåget ankommer klockan XX:XX till DESTINATION"
-                const arrivalMatch = text.match(/ankommer[\s\S]*?till\s+(.+?)$/i);
+                // Look for arrival pattern: "Ankommer kl XX:XX till DESTINATION"
+                const arrivalMatch = text.match(/Ankommer\s+kl\s+\d+:\d+\s+till\s+(.+?)\./i);
                 if (arrivalMatch) {
                     return arrivalMatch[1].trim();
                 }
@@ -140,172 +299,72 @@ class SJTrainParser {
         
         // Find all train mentions in the journey
         const allTrainElements = journeyContainer.querySelectorAll('p, span');
-        const trainPattern = /tåg\s+(\d+)/i;
-        let foundCurrentTrain = false;
-        let nextTrainId = null;
         
-        // Find the next train after our current one
-        for (const el of allTrainElements) {
-            const match = el.textContent.match(trainPattern);
-            if (match) {
-                const trainId = match[1];
-                if (foundCurrentTrain && trainId !== currentTrainId) {
-                    nextTrainId = trainId;
+        let foundCurrentTrain = false;
+        let nextDestination = null;
+        
+        for (const element of allTrainElements) {
+            const text = element.textContent;
+            
+            // Check if this is our train
+            if (text.includes(`tåg ${currentTrainId}`) || text.includes(`train ${currentTrainId}`)) {
+                foundCurrentTrain = true;
+                continue;
+            }
+            
+            // After finding our train, look for the next station/destination
+            if (foundCurrentTrain) {
+                // Look for arrival patterns
+                const arrivalMatch = text.match(/ankommer.*?till\s+(.+?)(?:\s+station)?$/i);
+                if (arrivalMatch) {
+                    nextDestination = arrivalMatch[1].trim();
                     break;
                 }
-                if (trainId === currentTrainId) {
-                    foundCurrentTrain = true;
-                }
-            }
-        }
-
-        // Strategy 3: Look for stations in the journey and determine the destination
-        const stationSpans = journeyContainer.querySelectorAll('span[aria-hidden="true"]');
-        const stations = [];
-        
-        for (let i = 0; i < stationSpans.length; i++) {
-            const span = stationSpans[i];
-            const text = span.textContent.trim();
-            
-            // Look for station names that come after times
-            if (i > 0 && /^\d{2}:\d{2}$/.test(stationSpans[i-1]?.textContent?.trim())) {
-                // Check if this looks like a station name
-                if (/^[A-ZÅÄÖ][a-zåäö\s]+(Central|station|C)?$/i.test(text) && text.length > 3) {
-                    stations.push({
-                        name: text,
-                        time: stationSpans[i-1].textContent.trim(),
-                        index: i
-                    });
-                }
-            }
-        }
-
-        // If we found a next train, the destination is the station before that train starts
-        if (nextTrainId && stations.length > 1) {
-            // Find where the next train element appears in the DOM
-            const nextTrainElement = Array.from(allTrainElements).find(el => 
-                el.textContent.includes(`tåg ${nextTrainId}`)
-            );
-            
-            if (nextTrainElement) {
-                // Find the station that appears before the next train element
-                for (let i = stations.length - 1; i >= 0; i--) {
-                    const station = stations[i];
-                    // Simple heuristic: if we have multiple stations, pick the one that's not the first
-                    if (i > 0) {
-                        return station.name;
+                
+                // Alternative: look for destination in bold or emphasized text
+                if (element.tagName === 'STRONG' || element.tagName === 'B') {
+                    // This might be a destination
+                    const possibleDest = text.trim();
+                    if (possibleDest.length > 2 && possibleDest.length < 50) {
+                        nextDestination = possibleDest;
+                        break;
                     }
                 }
             }
         }
-
-        // Fallback: return the last station mentioned (likely the final destination)
-        if (stations.length > 0) {
-            return stations[stations.length - 1].name;
-        }
-
-        return null;
-    }
-
-    findTime(container, type) {
-        const timePattern = /\d{2}:\d{2}/g;
-        const text = container.textContent;
-        const times = text.match(timePattern);
         
-        // Simple heuristic: first time is usually departure, second is arrival
-        if (times && times.length > 0) {
-            return type === 'departure' ? times[0] : (times[1] || times[0]);
-        }
-        
-        return null;
+        return nextDestination;
     }
 
-    findPlatform(container) {
-        const platformMatch = container.textContent.match(/(?:spår|platform|gleis)\s*(\d+[A-Z]?)/i);
-        return platformMatch ? platformMatch[1] : null;
-    }
-
-    findStatus(container) {
-        const statusKeywords = {
-            'försenad': 'delayed',
-            'inställd': 'cancelled',
-            'i tid': 'on time',
-            'delayed': 'delayed',
-            'cancelled': 'cancelled',
-            'on time': 'on time'
-        };
-
-        const text = container.textContent.toLowerCase();
-        for (const [swedish, english] of Object.entries(statusKeywords)) {
-            if (text.includes(swedish)) {
-                return english;
-            }
-        }
-
-        return null;
-    }
-
-    findTrainType(element) {
-        const text = element.textContent;
-        const types = ['Snälltåget', 'Mälartåg', 'Öresundståg', 'Pågatåg', 'SJ', 'X2000'];
-        
-        for (const type of types) {
-            if (text.includes(type)) {
-                return type;
-            }
-        }
-        
-        return null;
-    }
-
-    // Wait for content with exponential backoff
+    // Wait for train content to appear on the page with retries
     async waitForTrainContent() {
-        let attempts = 0;
-        let delay = this.interval;
+        this.log("Waiting for train content to load...");
         
-        const checkForContent = () => {
-            return new Promise((resolve) => {
-                attempts++;
-                this.log(`Attempt ${attempts}/${this.maxAttempts} - Looking for train content...`);
-                
-                const potentialTrainElements = document.querySelectorAll('p, span, div');
-                const hasTrainText = Array.from(potentialTrainElements).some(el => 
-                    /tåg\s*\d+/i.test(el.textContent)
-                );
-                
-                this.log(`Found ${potentialTrainElements.length} elements, hasTrainText: ${hasTrainText}`);
-                
-                if (hasTrainText) {
-                    this.log("Train content detected! Parsing...");
-                    this.parseTrainInfo();
-                    resolve(true);
-                    return;
-                }
-                
-                if (attempts < this.maxAttempts) {
-                    this.log(`No train content yet, retrying in ${delay}ms...`);
-                    setTimeout(() => {
-                        delay = Math.min(delay * 1.2, 5000); // Exponential backoff, max 5s
-                        checkForContent().then(resolve);
-                    }, delay);
-                } else {
-                    this.log("Max attempts reached, trying final parse...");
-                    this.parseTrainInfo();
-                    resolve(false);
-                }
-            });
-        };
+        for (let attempt = 0; attempt < this.maxAttempts; attempt++) {
+            const hasTrainContent = document.body.textContent.toLowerCase().includes('tåg') ||
+                                   document.body.textContent.toLowerCase().includes('train');
+            
+            if (hasTrainContent) {
+                this.log(`Train content detected on attempt ${attempt + 1}`);
+                await this.sleep(500); // Give it a bit more time to fully render
+                this.parseTrainInfo();
+                return;
+            }
+            
+            this.log(`Attempt ${attempt + 1}/${this.maxAttempts}: No train content yet`);
+            await this.sleep(this.interval);
+        }
         
-        return checkForContent();
+        this.log("Timeout waiting for train content");
     }
 
-    // Enhanced MutationObserver
-    observeForChanges() {
-        if (this.observer) {
-            this.observer.disconnect();
-        }
+    sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
 
-        this.log("Setting up enhanced MutationObserver...");
+    // Set up observer for dynamic content changes
+    observeForChanges() {
+        this.log("Setting up MutationObserver for dynamic changes...");
         
         let debounceTimer = null;
         
@@ -343,6 +402,116 @@ class SJTrainParser {
         });
         
         this.log("Enhanced MutationObserver active");
+    }
+
+    /**
+     * Check if a train has valid station data for API call
+     */
+    canCallAPI(train) {
+        return train.id && train.from && train.to;
+    }
+
+    /**
+     * Fetch delay statistics for a train from forsenad.nu API
+     */
+    async fetchDelayStats(train) {
+        if (!this.canCallAPI(train)) {
+            this.log(`Cannot fetch stats for train ${train.id} - missing station data`);
+            return null;
+        }
+
+        const url = `https://www.forsenad.nu/api/aggregations?groupBy=advertisedTrainIdent&stationName=${encodeURIComponent(train.to)}&advertisedTrainIdent=${train.id}`;
+        
+        this.log(`Fetching delay stats for train ${train.id} to ${train.to}`);
+        this.log(`URL: ${url}`);
+        
+        try {
+            // Try direct fetch first to test CORS
+            this.log(`Attempting direct fetch for train ${train.id}...`);
+            const directResponse = await fetch(url);
+            this.log(`Direct fetch status: ${directResponse.status}`);
+            
+            if (directResponse.ok) {
+                const data = await directResponse.json();
+                this.log(`✓ Direct fetch worked! Data:`, data);
+                
+                if (data && data.length > 0) {
+                    const stats = data[0];
+                    return {
+                        trainId: train.id,
+                        station: train.to,
+                        onTime: Math.round(stats.onTime * 100),
+                        lessThan30late: Math.round(stats.lessThan30late * 100),
+                        moreThan30late: Math.round(stats.moreThan30late * 100),
+                        cancelled: Math.round(stats.cancelled * 100),
+                        count: stats.count
+                    };
+                }
+            }
+        } catch (directError) {
+            this.log(`Direct fetch failed (trying background script): ${directError.message}`);
+            
+            // Fall back to background script
+            try {
+                this.log(`Sending message to background script...`);
+                const response = await chrome.runtime.sendMessage({
+                    action: 'fetchTrainData',
+                    url: url
+                });
+
+                this.log(`Response for train ${train.id}:`, response);
+
+                if (!response) {
+                    this.log(`❌ No response for train ${train.id}`);
+                    return null;
+                }
+
+                if (!response.success) {
+                    this.log(`❌ Fetch failed for train ${train.id}: ${response.error}`);
+                    return null;
+                }
+
+                if (!response.data || response.data.length === 0) {
+                    this.log(`⚠️ No data in response for train ${train.id} to ${train.to}`);
+                    return null;
+                }
+
+                const stats = response.data[0];
+                this.log(`✓ Got stats for train ${train.id}:`, stats);
+                return {
+                    trainId: train.id,
+                    station: train.to,
+                    onTime: Math.round(stats.onTime * 100),
+                    lessThan30late: Math.round(stats.lessThan30late * 100),
+                    moreThan30late: Math.round(stats.moreThan30late * 100),
+                    cancelled: Math.round(stats.cancelled * 100),
+                    count: stats.count
+                };
+            } catch (error) {
+                this.log(`❌ Exception with background script for train ${train.id}:`, error);
+                return null;
+            }
+        }
+        
+        return null;
+    }
+
+    /**
+     * Fetch delay statistics for all trains
+     */
+    async fetchAllDelayStats() {
+        const trains = this.trains.filter(t => this.canCallAPI(t));
+        this.log(`Fetching delay stats for ${trains.length} trains...`);
+        
+        const statsPromises = trains.map(train => this.fetchDelayStats(train));
+        const allStats = await Promise.all(statsPromises);
+        
+        // Filter out nulls
+        const validStats = allStats.filter(s => s !== null);
+        
+        this.log(`Retrieved stats for ${validStats.length}/${trains.length} trains`, validStats);
+        
+        return validStats;
     }
 
     // Notify the extension popup/background script
@@ -393,6 +562,138 @@ class SJTrainParser {
             this.observer = null;
         }
         this.log("Parser stopped");
+    }
+
+    /**
+     * Display delay statistics on the page
+     */
+    displayDelayStats(stats) {
+        this.log('Displaying delay statistics', stats);
+        
+        // Remove any existing forsenad box
+        const existingBox = document.getElementById('forsenad-stats-box');
+        if (existingBox) {
+            existingBox.remove();
+        }
+        
+        // Create the stats box
+        const statsBox = document.createElement('div');
+        statsBox.id = 'forsenad-stats-box';
+        statsBox.style.cssText = `
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            width: 320px;
+            background: white;
+            border: 2px solid #0066CC;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 10000;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-height: 80vh;
+            overflow-y: auto;
+        `;
+        
+        // Create header
+        const header = document.createElement('div');
+        header.style.cssText = `
+            background: #0066CC;
+            color: white;
+            padding: 12px 16px;
+            font-weight: bold;
+            font-size: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        `;
+        header.innerHTML = `
+            <span>📊 Förseningsstatistik från forsenad.nu</span>
+            <button id="forsenad-close-btn" style="
+                background: none;
+                border: none;
+                color: white;
+                font-size: 24px;
+                cursor: pointer;
+                padding: 0;
+                line-height: 1;
+            ">×</button>
+        `;
+        statsBox.appendChild(header);
+        
+        // Create content area
+        const content = document.createElement('div');
+        content.style.cssText = 'padding: 16px;';
+        
+        // Add stats for each train
+        stats.forEach((stat, index) => {
+            const trainBox = document.createElement('div');
+            trainBox.style.cssText = `
+                margin-bottom: ${index < stats.length - 1 ? '16px' : '0'};
+                padding-bottom: ${index < stats.length - 1 ? '16px' : '0'};
+                border-bottom: ${index < stats.length - 1 ? '1px solid #e0e0e0' : 'none'};
+            `;
+            
+            trainBox.innerHTML = `
+                <div style="font-weight: bold; font-size: 15px; margin-bottom: 8px; color: #333;">
+                    Tåg ${stat.trainId} till ${stat.station}
+                </div>
+                <div style="font-size: 12px; color: #666; margin-bottom: 8px;">
+                    Baserat på ${stat.count} observationer
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-size: 13px;">✅ I tid:</span>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <div style="background: #e0e0e0; height: 8px; width: 100px; border-radius: 4px; overflow: hidden;">
+                                <div style="background: #4CAF50; height: 100%; width: ${stat.onTime}%;"></div>
+                            </div>
+                            <span style="font-weight: bold; font-size: 13px; min-width: 35px; text-align: right;">${stat.onTime}%</span>
+                        </div>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-size: 13px;">⚠️ &lt;30 min sen:</span>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <div style="background: #e0e0e0; height: 8px; width: 100px; border-radius: 4px; overflow: hidden;">
+                                <div style="background: #FF9800; height: 100%; width: ${stat.lessThan30late}%;"></div>
+                            </div>
+                            <span style="font-weight: bold; font-size: 13px; min-width: 35px; text-align: right;">${stat.lessThan30late}%</span>
+                        </div>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-size: 13px;">🔴 &gt;30 min sen:</span>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <div style="background: #e0e0e0; height: 8px; width: 100px; border-radius: 4px; overflow: hidden;">
+                                <div style="background: #F44336; height: 100%; width: ${stat.moreThan30late}%;"></div>
+                            </div>
+                            <span style="font-weight: bold; font-size: 13px; min-width: 35px; text-align: right;">${stat.moreThan30late}%</span>
+                        </div>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-size: 13px;">❌ Inställt:</span>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <div style="background: #e0e0e0; height: 8px; width: 100px; border-radius: 4px; overflow: hidden;">
+                                <div style="background: #9E9E9E; height: 100%; width: ${stat.cancelled}%;"></div>
+                            </div>
+                            <span style="font-weight: bold; font-size: 13px; min-width: 35px; text-align: right;">${stat.cancelled}%</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            content.appendChild(trainBox);
+        });
+        
+        statsBox.appendChild(content);
+        
+        // Add to page
+        document.body.appendChild(statsBox);
+        
+        // Add close button handler
+        document.getElementById('forsenad-close-btn').addEventListener('click', () => {
+            statsBox.remove();
+        });
+        
+        this.log('✓ Delay stats displayed on page');
     }
 
     // Get current results
