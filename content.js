@@ -439,77 +439,44 @@ class SJTrainParser {
         const url = `https://www.forsenad.nu/api/aggregations?groupBy=advertisedTrainIdent&stationName=${encodeURIComponent(train.to)}&advertisedTrainIdent=${train.id}`;
         
         this.log(`Fetching delay stats for train ${train.id} to ${train.to}`);
-        this.log(`URL: ${url}`);
         
         try {
-            // Try direct fetch first to test CORS
-            this.log(`Attempting direct fetch for train ${train.id}...`);
-            const directResponse = await fetch(url);
-            this.log(`Direct fetch status: ${directResponse.status}`);
-            
-            if (directResponse.ok) {
-                const data = await directResponse.json();
-                this.log(`✓ Direct fetch worked! Data:`, data);
-                
-                if (data && data.length > 0) {
-                    const stats = data[0];
-                    return {
-                        trainId: train.id,
-                        station: train.to,
-                        onTime: Math.round(stats.onTime * 100),
-                        lessThan30late: Math.round(stats.lessThan30late * 100),
-                        moreThan30late: Math.round(stats.moreThan30late * 100),
-                        cancelled: Math.round(stats.cancelled * 100),
-                        count: stats.count
-                    };
-                }
-            }
-        } catch (directError) {
-            this.log(`Direct fetch failed (trying background script): ${directError.message}`);
-            
-            // Fall back to background script
-            try {
-                this.log(`Sending message to background script...`);
-                const response = await chrome.runtime.sendMessage({
-                    action: 'fetchTrainData',
-                    url: url
-                });
+            // Use background script to make the API call (bypasses CORS)
+            const response = await chrome.runtime.sendMessage({
+                action: 'fetchTrainData',
+                url: url
+            });
 
-                this.log(`Response for train ${train.id}:`, response);
-
-                if (!response) {
-                    this.log(`❌ No response for train ${train.id}`);
-                    return null;
-                }
-
-                if (!response.success) {
-                    this.log(`❌ Fetch failed for train ${train.id}: ${response.error}`);
-                    return null;
-                }
-
-                if (!response.data || response.data.length === 0) {
-                    this.log(`⚠️ No data in response for train ${train.id} to ${train.to}`);
-                    return null;
-                }
-
-                const stats = response.data[0];
-                this.log(`✓ Got stats for train ${train.id}:`, stats);
-                return {
-                    trainId: train.id,
-                    station: train.to,
-                    onTime: Math.round(stats.onTime * 100),
-                    lessThan30late: Math.round(stats.lessThan30late * 100),
-                    moreThan30late: Math.round(stats.moreThan30late * 100),
-                    cancelled: Math.round(stats.cancelled * 100),
-                    count: stats.count
-                };
-            } catch (error) {
-                this.log(`❌ Exception with background script for train ${train.id}:`, error);
+            if (!response) {
+                this.log(`❌ No response for train ${train.id}`);
                 return null;
             }
+
+            if (!response.success) {
+                this.log(`❌ Fetch failed for train ${train.id}: ${response.error}`);
+                return null;
+            }
+
+            if (!response.data || response.data.length === 0) {
+                this.log(`⚠️ No data in response for train ${train.id} to ${train.to}`);
+                return null;
+            }
+
+            const stats = response.data[0];
+            this.log(`✓ Got stats for train ${train.id}`);
+            return {
+                trainId: train.id,
+                station: train.to,
+                onTime: Math.round(stats.onTime * 100),
+                lessThan30late: Math.round(stats.lessThan30late * 100),
+                moreThan30late: Math.round(stats.moreThan30late * 100),
+                cancelled: Math.round(stats.cancelled * 100),
+                count: stats.count
+            };
+        } catch (error) {
+            this.log(`❌ Exception fetching stats for train ${train.id}:`, error);
+            return null;
         }
-        
-        return null;
     }
 
     /**
