@@ -616,24 +616,24 @@ class SJTrainParser {
             background: #f8f9fa;
             color: #333;
             padding: 16px;
-            font-weight: 600;
-            font-size: 15px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
             border-bottom: 1px solid #e0e0e0;
         `;
         header.innerHTML = `
-            <span>Förseningsstatistik från forsenad.nu</span>
-            <button id="forsenad-close-btn" style="
-                background: none;
-                border: none;
-                color: #666;
-                font-size: 24px;
-                cursor: pointer;
-                padding: 0;
-                line-height: 1;
-            ">×</button>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <span style="font-weight: 600; font-size: 15px;">Förseningsstatistik från forsenad.nu</span>
+                <button id="forsenad-close-btn" style="
+                    background: none;
+                    border: none;
+                    color: #666;
+                    font-size: 24px;
+                    cursor: pointer;
+                    padding: 0;
+                    line-height: 1;
+                ">×</button>
+            </div>
+            <div style="font-size: 12px; color: #6b7280;">
+                Tåg som är upp till 5 minuter försenade räknas som att vara i tid.
+            </div>
         `;
         statsBox.appendChild(header);
         
@@ -735,8 +735,15 @@ class SJTrainParser {
                 </div>
                 ${barChart}
                 ${legend}
-                <div style="font-size: 13px; color: #6b7280; text-align: center;">
-                    Data från ${stat.count} ankomster
+                <div style="font-size: 13px; color: #6b7280; text-align: center; display: flex; justify-content: center; align-items: center; gap: 8px;">
+                    <span>Data från ${stat.count} ankomster</span>
+                    <span style="color: #d1d5db;">•</span>
+                    <a href="https://www.forsenad.nu/stats-ui/?stationName=${encodeURIComponent(stat.station)}&advertisedTrainIdent=${stat.trainId}&groupBy=month" 
+                       target="_blank" 
+                       rel="noopener noreferrer"
+                       style="color: #3b82f6; text-decoration: none; font-weight: 500;">
+                        Detaljer →
+                    </a>
                 </div>
             `;
             
