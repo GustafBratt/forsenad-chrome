@@ -66,11 +66,6 @@ class SJTrainParser {
         
         // Trim whitespace
         let normalized = sjStationName.trim();
-
-        //Special cases
-        if(normalized.toLowerCase() === 'mjölby station'){
-            return 'Mjölby';
-        }
         
         // Replace "Central" with "C" (case insensitive)
         normalized = normalized.replace(/\s+Central$/i, ' C');
@@ -588,11 +583,11 @@ class SJTrainParser {
             position: fixed;
             top: 80px;
             right: 20px;
-            width: 320px;
+            width: 400px;
             background: white;
-            border: 2px solid #0066CC;
+            border: 1px solid #e0e0e0;
             border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
             z-index: 10000;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             max-height: 80vh;
@@ -602,21 +597,22 @@ class SJTrainParser {
         // Create header
         const header = document.createElement('div');
         header.style.cssText = `
-            background: #0066CC;
-            color: white;
-            padding: 12px 16px;
-            font-weight: bold;
-            font-size: 16px;
+            background: #f8f9fa;
+            color: #333;
+            padding: 16px;
+            font-weight: 600;
+            font-size: 15px;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            border-bottom: 1px solid #e0e0e0;
         `;
         header.innerHTML = `
-            <span>📊 Förseningsstatistik från forsenad.nu</span>
+            <span>Förseningsstatistik från forsenad.nu</span>
             <button id="forsenad-close-btn" style="
                 background: none;
                 border: none;
-                color: white;
+                color: #666;
                 font-size: 24px;
                 cursor: pointer;
                 padding: 0;
@@ -627,61 +623,104 @@ class SJTrainParser {
         
         // Create content area
         const content = document.createElement('div');
-        content.style.cssText = 'padding: 16px;';
+        content.style.cssText = 'padding: 20px;';
         
         // Add stats for each train
         stats.forEach((stat, index) => {
             const trainBox = document.createElement('div');
             trainBox.style.cssText = `
-                margin-bottom: ${index < stats.length - 1 ? '16px' : '0'};
-                padding-bottom: ${index < stats.length - 1 ? '16px' : '0'};
+                margin-bottom: ${index < stats.length - 1 ? '24px' : '0'};
+                padding-bottom: ${index < stats.length - 1 ? '24px' : '0'};
                 border-bottom: ${index < stats.length - 1 ? '1px solid #e0e0e0' : 'none'};
             `;
             
+            // Horizontal bar chart
+            const barChart = `
+                <div style="
+                    display: flex;
+                    height: 48px;
+                    border-radius: 8px;
+                    overflow: hidden;
+                    margin-bottom: 16px;
+                ">
+                    <div style="
+                        background: #10b981;
+                        width: ${stat.onTime}%;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        color: white;
+                        font-weight: 600;
+                        font-size: 14px;
+                    ">${stat.onTime > 8 ? stat.onTime + '%' : ''}</div>
+                    <div style="
+                        background: #f59e0b;
+                        width: ${stat.lessThan30late}%;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        color: white;
+                        font-weight: 600;
+                        font-size: 14px;
+                    ">${stat.lessThan30late > 8 ? stat.lessThan30late + '%' : ''}</div>
+                    <div style="
+                        background: #ef4444;
+                        width: ${stat.moreThan30late}%;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        color: white;
+                        font-weight: 600;
+                        font-size: 14px;
+                    ">${stat.moreThan30late > 8 ? stat.moreThan30late + '%' : ''}</div>
+                    <div style="
+                        background: #9ca3af;
+                        width: ${stat.cancelled}%;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        color: white;
+                        font-weight: 600;
+                        font-size: 14px;
+                    ">${stat.cancelled > 8 ? stat.cancelled + '%' : ''}</div>
+                </div>
+            `;
+            
+            // Legend
+            const legend = `
+                <div style="
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 12px;
+                    margin-bottom: 12px;
+                ">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div style="width: 12px; height: 12px; border-radius: 50%; background: #10b981;"></div>
+                        <span style="font-size: 13px; color: #4b5563;">I tid (${stat.onTime}%)</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div style="width: 12px; height: 12px; border-radius: 50%; background: #f59e0b;"></div>
+                        <span style="font-size: 13px; color: #4b5563;">< 30 min (${stat.lessThan30late}%)</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div style="width: 12px; height: 12px; border-radius: 50%; background: #ef4444;"></div>
+                        <span style="font-size: 13px; color: #4b5563;">> 30 min (${stat.moreThan30late}%)</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div style="width: 12px; height: 12px; border-radius: 50%; background: #9ca3af;"></div>
+                        <span style="font-size: 13px; color: #4b5563;">Inställt (${stat.cancelled}%)</span>
+                    </div>
+                </div>
+            `;
+            
             trainBox.innerHTML = `
-                <div style="font-weight: bold; font-size: 15px; margin-bottom: 8px; color: #333;">
+                <div style="font-weight: 600; font-size: 15px; margin-bottom: 12px; color: #111827;">
                     Tåg ${stat.trainId} till ${stat.station}
                 </div>
-                <div style="font-size: 12px; color: #666; margin-bottom: 8px;">
-                    Baserat på ${stat.count} observationer
-                </div>
-                <div style="display: flex; flex-direction: column; gap: 6px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-size: 13px;">✅ I tid:</span>
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <div style="background: #e0e0e0; height: 8px; width: 100px; border-radius: 4px; overflow: hidden;">
-                                <div style="background: #4CAF50; height: 100%; width: ${stat.onTime}%;"></div>
-                            </div>
-                            <span style="font-weight: bold; font-size: 13px; min-width: 35px; text-align: right;">${stat.onTime}%</span>
-                        </div>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-size: 13px;">⚠️ &lt;30 min sen:</span>
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <div style="background: #e0e0e0; height: 8px; width: 100px; border-radius: 4px; overflow: hidden;">
-                                <div style="background: #FF9800; height: 100%; width: ${stat.lessThan30late}%;"></div>
-                            </div>
-                            <span style="font-weight: bold; font-size: 13px; min-width: 35px; text-align: right;">${stat.lessThan30late}%</span>
-                        </div>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-size: 13px;">🔴 &gt;30 min sen:</span>
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <div style="background: #e0e0e0; height: 8px; width: 100px; border-radius: 4px; overflow: hidden;">
-                                <div style="background: #F44336; height: 100%; width: ${stat.moreThan30late}%;"></div>
-                            </div>
-                            <span style="font-weight: bold; font-size: 13px; min-width: 35px; text-align: right;">${stat.moreThan30late}%</span>
-                        </div>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-size: 13px;">❌ Inställt:</span>
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <div style="background: #e0e0e0; height: 8px; width: 100px; border-radius: 4px; overflow: hidden;">
-                                <div style="background: #9E9E9E; height: 100%; width: ${stat.cancelled}%;"></div>
-                            </div>
-                            <span style="font-weight: bold; font-size: 13px; min-width: 35px; text-align: right;">${stat.cancelled}%</span>
-                        </div>
-                    </div>
+                ${barChart}
+                ${legend}
+                <div style="font-size: 13px; color: #6b7280; text-align: center;">
+                    Data från ${stat.count} ankomster
                 </div>
             `;
             
