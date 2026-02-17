@@ -60,6 +60,8 @@ class SJTrainParser {
     /**
      * Normalize station name from SJ format to API format
      * SJ uses "Stockholm Central" -> API uses "Stockholm C"
+     * SJ uses "Alvesta station" -> API uses "Alvesta"
+     * SJ uses "Mora station" -> API uses "Mora C"
      */
     normalizeStationName(sjStationName) {
         if (!sjStationName) return null;
@@ -67,25 +69,39 @@ class SJTrainParser {
         // Trim whitespace
         let normalized = sjStationName.trim();
         
-        // Replace "Central" with "C" (case insensitive)
-        normalized = normalized.replace(/\s+Central$/i, ' C');
+        // Try multiple variations in order of likelihood
+        const variations = [];
         
-        // Check if this exact name exists in our API
-        if (this.validStationsSet.has(normalized)) {
-            return normalized;
+        // 1. Replace "Central" with "C"
+        if (normalized.endsWith(' Central')) {
+            variations.push(normalized.replace(/\s+Central$/i, ' C'));
         }
         
-        // Try without " C" suffix for stations that don't have it in API
-        const withoutC = normalized.replace(/\s+C$/, '');
-        if (this.validStationsSet.has(withoutC)) {
-            return withoutC;
+        // 2. Remove "station" suffix
+        if (normalized.endsWith(' station')) {
+            const withoutStation = normalized.replace(/\s+station$/i, '');
+            variations.push(withoutStation);
+            // 3. Try adding " C" after removing "station" (for cases like "Mora station" -> "Mora C")
+            variations.push(withoutStation + ' C');
+        }
+        
+        // 4. Try the original name as-is
+        variations.push(normalized);
+        
+        // Try each variation
+        for (const variant of variations) {
+            if (this.validStationsSet.has(variant)) {
+                if (variant !== normalized) {
+                    this.log(`✓ Station mapped: "${sjStationName}" -> "${variant}"`);
+                }
+                return variant;
+            }
         }
         
         // Station not found in API
-        this.log(`⚠️ Station "${sjStationName}" -> "${normalized}" not found in API`, {
+        this.log(`⚠️ Station "${sjStationName}" not found in API (tried: ${variations.join(', ')})`, {
             original: sjStationName,
-            normalized: normalized,
-            withoutC: withoutC
+            variations: variations
         });
         
         return null;
