@@ -1,12 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Forsenad Chrome Extension",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Adds delay statistics from forsenad.nu to SJ.se",
-  "permissions": [
-    "activeTab",
-    "storage"
-  ],
+  "permissions": [],
   "host_permissions": [
     "https://www.sj.se/*",
     "https://www.forsenad.nu/*"
