@@ -5,13 +5,6 @@ console.log('Forsenad Extension: Background script loaded');
 chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     console.log('Background received message:', request);
     
-    // Test ping/pong for debugging
-    if (request.action === 'ping') {
-        console.log('Received ping, sending pong');
-        sendResponse({ status: 'pong', timestamp: Date.now() });
-        return true;
-    }
-
     // Fetch train data from forsenad.nu API (bypasses CORS)
     if (request.action === 'fetchTrainData') {
         console.log('Fetching train data from:', request.url);

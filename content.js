@@ -14,16 +14,6 @@ if (typeof chrome === 'undefined' || !chrome.runtime) {
     console.error('🚂 ❌ ERROR: Chrome extension APIs NOT AVAILABLE!');
 } else {
     console.log('🚂 ✓ Chrome extension APIs available');
-    
-    // Test background script communication immediately
-    console.log('🚂 Testing background script communication...');
-    chrome.runtime.sendMessage({ action: 'ping' }, response => {
-        if (chrome.runtime.lastError) {
-            console.error('🚂 ❌ Background script communication FAILED:', chrome.runtime.lastError.message);
-        } else {
-            console.log('🚂 ✓ Background script responded:', response);
-        }
-    });
 }
 console.log('═══════════════════════════════════════════════════');
 
@@ -228,8 +218,6 @@ class SJTrainParser {
             if (notReady.length > 0) {
                 this.log(`⚠️ ${notReady.length} trains missing station data:`, notReady);
             }
-            
-            this.notifyExtension();
             
             // Check if we should fetch stats (only if trains changed)
             const trainKey = this.trains.map(t => `${t.id}-${t.to}`).sort().join('|');
@@ -495,20 +483,6 @@ class SJTrainParser {
         this.log(`Retrieved stats for ${validStats.length}/${trains.length} trains`, validStats);
         
         return validStats;
-    }
-
-    // Notify the extension popup/background script
-    notifyExtension() {
-        if (typeof chrome !== 'undefined' && chrome.runtime) {
-            chrome.runtime.sendMessage({
-                type: 'TRAINS_FOUND',
-                trains: this.trains,
-                url: window.location.href,
-                timestamp: Date.now()
-            }).catch(err => {
-                this.log("Failed to send message to extension", err);
-            });
-        }
     }
 
     // Public API
