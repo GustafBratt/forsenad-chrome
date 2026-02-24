@@ -62,9 +62,11 @@ class SJTrainParser {
         // Try multiple variations in order of likelihood
         const variations = [];
         
-        // 1. Replace "Central" with "C"
+        // 1. Replace "Central" with "C", or strip it entirely
+        // e.g. "Stockholm Central" -> "Stockholm C", "Luleå Central" -> "Luleå"
         if (normalized.endsWith(' Central')) {
             variations.push(normalized.replace(/\s+Central$/i, ' C'));
+            variations.push(normalized.replace(/\s+Central$/i, ''));
         }
         
         // 2. Remove "station" suffix
@@ -261,85 +263,6 @@ class SJTrainParser {
         return null;
     }
 
-    // Extract train ID and destination for multi-leg journeys
-    extractTrainDetails(element, trainId) {
-        // Find the container that holds this specific train
-        const trainContainer = element.closest('[role="listitem"], .journey-item, .train-item, li');
-        
-        if (!trainContainer) {
-            this.log(`No container found for train ${trainId}`);
-            return null;
-        }
-
-        // Look for destination by finding the next train leg or final destination
-        let destination = this.findDestinationInJourney(trainContainer, trainId);
-
-        if (!destination) {
-            this.log(`Train ${trainId} found but no destination detected`);
-            return null;
-        }
-
-        return {
-            id: trainId,
-            destination
-        };
-    }
-
-    findDestinationInJourney(container, currentTrainId) {
-        // Strategy 1: Look for screen reader text that mentions this specific train's arrival
-        const srSpans = container.querySelectorAll('span[class*="srOnly"], .sr-only, span[class*="sr-"]');
-        for (const span of srSpans) {
-            const text = span.textContent;
-            // Handle text with line breaks: "Tåget ankommer klockan 14:20\n\ntill Vingåker station"
-            const arrivalMatch = text.match(/ankommer[\s\S]*?till\s+(.+?)$/i);
-            if (arrivalMatch) {
-                return arrivalMatch[1].trim();
-            }
-        }
-
-        // Strategy 2: Find where this train leg ends by looking at the journey structure
-        // Look for the main journey container that contains all legs
-        const journeyContainer = container.closest('.MuiBox-root') || container;
-        
-        // Find all train mentions in the journey
-        const allTrainElements = journeyContainer.querySelectorAll('p, span');
-        
-        let foundCurrentTrain = false;
-        let nextDestination = null;
-        
-        for (const element of allTrainElements) {
-            const text = element.textContent;
-            
-            // Check if this is our train
-            if (text.includes(`tåg ${currentTrainId}`) || text.includes(`train ${currentTrainId}`)) {
-                foundCurrentTrain = true;
-                continue;
-            }
-            
-            // After finding our train, look for the next station/destination
-            if (foundCurrentTrain) {
-                // Look for arrival patterns
-                const arrivalMatch = text.match(/ankommer.*?till\s+(.+?)(?:\s+station)?$/i);
-                if (arrivalMatch) {
-                    nextDestination = arrivalMatch[1].trim();
-                    break;
-                }
-                
-                // Alternative: look for destination in bold or emphasized text
-                if (element.tagName === 'STRONG' || element.tagName === 'B') {
-                    // This might be a destination
-                    const possibleDest = text.trim();
-                    if (possibleDest.length > 2 && possibleDest.length < 50) {
-                        nextDestination = possibleDest;
-                        break;
-                    }
-                }
-            }
-        }
-        
-        return nextDestination;
-    }
-
     // Wait for train content to appear on the page with retries
     async waitForTrainContent() {
         this.log("Waiting for train content to load...");
@@ -412,7 +335,7 @@ class SJTrainParser {
      * Check if a train has valid station data for API call
      */
     canCallAPI(train) {
-        return train.id && train.from && train.to;
+        return train.id && train.to;
     }
 
     /**

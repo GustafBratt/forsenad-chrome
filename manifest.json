@@ -1,23 +1,19 @@
 {
   "manifest_version": 3,
   "name": "Forsenad Chrome Extension",
-  "version": "1.0.3",
-  "description": "Adds delay statistics from forsenad.nu to SJ.se",
+  "version": "1.0.4",
+  "description": "Adds delay statistics from forsenad.nu to SJ.se train journey details.",
   "permissions": [],
   "host_permissions": [
     "https://www.sj.se/*",
     "https://www.forsenad.nu/*"
   ],
-  "action": {
-    "default_popup": "popup.html",
-    "default_title": "Forsenad Extension"
-  },
   "content_scripts": [
     {
       "matches": [
         "https://www.sj.se/*"
       ],
-      "js": ["popupMessageHandler.js", "content.js"],
+      "js": ["content.js"],
       "run_at": "document_idle"
     }
   ],
